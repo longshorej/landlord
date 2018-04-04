@@ -19,17 +19,17 @@ JVM programs take up too much resident memory. Back in the day of Java 1.1, a mi
 
 Also, compare a typical JVM "microservice" to one written using a native target, such as LLVM; the JVM one will occupy around 350MiB which is more than 10 times the amount of memory when compared to a native one written in, say, Go. The JVM's consumption of memory may have been fine for the monolith, but when it comes to running many JVM based microservices (processes), their resident memory usage makes you want to program in something closer to the metal... or seek the "landlord" project!
 
-Discounting the regular JVM overhead of runnning the first service, Running Landlord will reduce a typical "hello world" down to the requirements of its classpath. I've observed a simple Java Hello World app consuming less than 1MiB of memory compared to 35MiB when running as a standalone process. Bear in mind though that landlordd itself will realistically require 250MiB including room for running several processes (all depending on what the processes require of course!). 
+Discounting the regular JVM overhead of runnning the first service, Running Landlord will reduce a typical "hello world" down to the requirements of its classpath. I've observed a simple Java Hello World app consuming less than 1MiB of memory compared to 35MiB when running as a standalone process. Bear in mind though that landlordd itself will realistically require 250MiB including room for running several processes (all depending on what the processes require of course!).
 
 ## What
-Landlord has a daemon service named `landlordd`. `landlordd` launches the JVM and runs some code that provides a secure Unix socket domain service where you can submit your JVM program to run. You may also send various [POSIX signals](https://en.wikipedia.org/wiki/Signal_(IPC)) that are trapped by your program in the conventional way for the JVM. You manage the daemon's lifecycle as per other services on your machines e.g. via initd. 
+Landlord has a daemon service named `landlordd`. `landlordd` launches the JVM and runs some code that provides a secure Unix socket domain service where you can submit your JVM program to run. You may also send various [POSIX signals](https://en.wikipedia.org/wiki/Signal_(IPC)) that are trapped by your program in the conventional way for the JVM. You manage the daemon's lifecycle as per other services on your machines e.g. via initd.
 
 A client is also provided and named `landlord`. This client interfaces with `landlordd` and accepts a filesystem via stdin. The client provides the illusion that your program is running within it, in the same way that Docker clients do when they run containers via the Docker daemon. Landlord's architecture is very similar to Docker in this way i.e. there are clients and there is a daemon. One important difference though is that when your client terminates, so does its "process" as managed by its daemon i.e. there is deliberately no "detach" mode in order to reduce the potential for orphaned processes. Landlord clients themselves can be detached though. The goal is for the Landlord client to behave as your process would without Landlord, relaying signals etc.
 
 ## How
 From the command line, simply use the `landlord` command instead of the `java` tool and pass its filesystem via tar on `stdin` and you're good to go.
 
-Under the hood, `landlord` will use a usergroup-secured Unix domain socket to send its arguments, including the streaming of the `tar` based file system from `stdin`. `landlordd` will consume the stream and create a new internal process invoked with a similar `java` command to the one it was invoked with. 
+Under the hood, `landlord` will use a usergroup-secured Unix domain socket to send its arguments, including the streaming of the `tar` based file system from `stdin`. `landlordd` will consume the stream and create a new internal process invoked with a similar `java` command to the one it was invoked with.
 
 landlordd emulates the forking of a process within the same JVM by providing:
 * a new classloader for each process that prohibits looking up landlord's and other process classes
@@ -103,7 +103,8 @@ Some tradeoffs that have been identified:
 Thanks to @retronym, @dragos and @dotta for their contributions to the above.
 
 ## landlord (TODO)
-`landlord` will stream your commands to `landlordd` and then wait on a response. The response will yield the exit code from your program which will then cause `landlord` exit with the same response code.
+
+`landlord` (the client) will stream stdin to `landlordd` until it receives a response. The response will yield the exit code from your program which will then cause `landlord` exit with the same response code.
 
 Any POSIX signals sent to `landlord` while it is waiting for a reply will be forwarded onto `landlordd` and are then received by your program.
 
@@ -112,7 +113,7 @@ Note that in the case of long-lived programs (the most typical scenario for a mi
 ## landlordd
 You can run as many `landlordd` daemons as your system will allow. Quite often though, you should just need one.
 
-## Building
+## Building landlordd
 1. Build the daemon:
 
 ```
@@ -123,8 +124,9 @@ sbt daemon/stage
 2. Run it - `/var/run/landlordd` is where the Unix Domain Socket will be created and `/tmp/a` is simply where forked processes will run within:
 
 ```
-sudo mkdir /var/run/landlordd
-chown $USER /var/run/landlordd
+sudo mkdir /var/run/landlord
+sudo chown $USER /var/run/landlord
+sudo chmod 770 /var/run/landlord
 daemon/target/universal/stage/bin/landlordd --process-dir-path=/tmp/a
 ```
 
@@ -155,6 +157,25 @@ x
 `Hi there` is what I typed in. The `o` and `Hi there` is the stdout and the `x` is the exit code. We're not seeing some values such as the string length and actual exit code because the bash echo command is not outputting them (we'll write a more sophisticated native client down the track).
 
 The bash script expects you to just hit return to end sending stdin.
+
+## Building landlord
+
+`landlord` is a CLI program written in [Rust](https://www.rust-lang.org/en-US/). You'll need `cargo` on your path to build it, see [rustup](https://www.rustup.rs/) for more information.
+
+### Dev
+
+```
+cd landlord
+cargo run
+```
+
+### Release
+
+```
+cd landlord
+cargo build --release
+./target/release/landlord
+```
 
 Profiling tooling is gratefully donated by YourKit LLC ![logo](https://www.yourkit.com/images/yklogo.png)
 
